@@ -125,7 +125,7 @@ def liberar_produto(chat_id, tipo, indice):
             item = consultaveis[indice]
             banco, valor = item.split("|", 1)
             txt = (
-                "🔓 *CONSULTA LIBERADA*\n"
+                "🔓 *CONSULTAVEL LIBERADA*\n"
                 "──────────────\n\n"
                 f"🏦 `{banco}`\n"
                 f"💰 `{valor}`"
@@ -172,7 +172,7 @@ def menu_principal(message):
     )
     safe_send_message(
         message.chat.id,
-        "🔥 *RLK DATROPADOSAN*\n\nTudo liberado. Nada é pago.",
+        "🔥 *RLK DATROPADOSAN*\n\nAS MELHORES CC's e Consultaveis da dark/web Coletadas com admin de motel 5 estrelas.",
         reply_markup=markup
     )
 
@@ -188,7 +188,7 @@ def listar(c):
     
     itens = listar_estoque(arquivo)
     if not itens:
-        bot.answer_callback_query(c.id, "⚠️ Estoque vazio.", show_alert=True)
+        bot.answer_callback_query(c.id, "⚠️ SEM ESTOQUE AGORA PAE , AGUARDE REPOSIÇÃO.", show_alert=True)
         return
     
     if tipo == "CC":
@@ -279,12 +279,12 @@ def comprar(c):
     
     cobranca = gerar_cobranca(valor, descricao, c.message.chat.id, tipo, indice)
     if not cobranca:
-        safe_send_message(c.message.chat.id, "❌ Erro ao gerar pagamento.")
+        safe_send_message(c.message.chat.id, "❌ PIX FORA DO AR TENTA DENOVO DEPOIS PAE.")
         return
     
     qr_img = gerar_qr_code(cobranca["qr_code"])
     caption = (
-        "✅ *PAGAMENTO GERADO*\n"
+        "✅ *PAGAMENTO GERADO BIGODE, LIBERAÇÃO INSTANTÂNEA!*\n"
         "──────────────\n\n"
         f"💰 `R$ {valor:.2f}`\n\n"
         "👇 *Copie o código PIX abaixo*:\n\n"
