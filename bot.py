@@ -80,7 +80,6 @@ def gerar_cobranca(valor, descricao, chat_id, tipo, indice):
                 "tipo": tipo,
                 "indice": indice
             }
-            # Garantir que os campos existem
             qr_code = r["response"]["point_of_interaction"]["transaction_data"].get("qr_code", "")
             init_point = r["response"].get("init_point", "")
             return {
@@ -142,10 +141,6 @@ app = Flask(__name__)
 @app.route('/')
 def home():
     return "Bot RLK DATROPADOSAN Online"
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    return "Webhook OK", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
