@@ -248,6 +248,42 @@ def comprar(c):
 def voltar(c):
     menu_principal(c.message)
 
+# --- MOSTRAR CC COM IMAGEM ---
+@bot.callback_query_handler(func=lambda c: c.data == "listar_CC")
+def listar_cc_com_imagem(c):
+    arquivo = "CC's.txt"
+    itens = listar_estoque(arquivo)
+    if not itens:
+        bot.answer_callback_query(c.id, "⚠️ Estoque vazio.", show_alert=True)
+        return
+    
+    # Selecionar primeira CC
+    cc = itens[0]
+    num = cc.split("|")[0]
+    mascarado = f"{num[:6]}******{num[-4:]}"
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("🔄 Outra CC", callback_data="outra_cc"),
+        types.InlineKeyboardButton("🛒 Comprar", callback_data="buy_CC_0"),
+        types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu")
+    )
+    
+    texto = (
+        "💳 *CC SANSTORE*\n"
+        "──────────────\n\n"
+        f"`{mascarado}`\n\n"
+        "✅ Número completo após pagamento.\n"
+        "🛡️ Seguro e confidencial."
+    )
+    
+    try:
+        with open("cartao.jpg", "rb") as photo:
+            bot.send_photo(c.message.chat.id, photo, caption=texto, reply_markup=markup)
+    except Exception as e:
+        logging.error(f"Erro ao enviar imagem: {e}")
+        bot.edit_message_text(texto, c.message.chat.id, c.message.message_id, reply_markup=markup)
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False)).start()
