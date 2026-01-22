@@ -248,18 +248,16 @@ def comprar(c):
 def voltar(c):
     menu_principal(c.message)
 
-# --- MOSTRAR CC COM IMAGEM ---
+# --- MOSTRAR IMAGEM AO ACESSAR CC'S ---
 @bot.callback_query_handler(func=lambda c: c.data == "listar_CC")
-def listar_cc_com_imagem(c):
-    arquivo = "CC's.txt"
-    itens = listar_estoque(arquivo)
+def mostrar_cc_com_imagem(c):
+    itens = listar_estoque("CC's.txt")
     if not itens:
         bot.answer_callback_query(c.id, "⚠️ Estoque vazio.", show_alert=True)
         return
     
-    # Selecionar primeira CC
-    cc = itens[0]
-    num = cc.split("|")[0]
+    # Pegar primeira CC
+    num = itens[0].split("|")[0]
     mascarado = f"{num[:6]}******{num[-4:]}"
     
     markup = types.InlineKeyboardMarkup(row_width=2)
