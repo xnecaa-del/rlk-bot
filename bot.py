@@ -5,7 +5,6 @@ import os
 import logging
 import qrcode
 from io import BytesIO
-import threading
 from flask import Flask, request, jsonify
 
 # --- CONFIGURAÇÕES ---
@@ -136,6 +135,10 @@ def liberar_produto(chat_id, tipo, indice):
 
 # --- FLASK WEBHOOK ---
 app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot RLK DATROPADOSAN Online"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -295,4 +298,6 @@ def voltar(c):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    from threading import Thread
+    Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False)).start()
+    bot.polling(none_stop=True)
