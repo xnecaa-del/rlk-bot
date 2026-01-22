@@ -10,7 +10,7 @@ from flask import Flask, request, jsonify
 
 # --- CONFIGURAÇÕES ---
 TOKEN = '8219509702:AAEQThWquHwt5e4V2YSL7vZdcCsdYVpwsW4'
-MP_TOKEN = 'APP_USR-6894935873237030-012111-0bf28881a74fe3acc533c3b83cc0dfbc-1680044822'
+MP_TOKEN = 'APP_USR-6894935873237030-012111-0bf28881a74fe3acc533c3b83cc0dfbc-1680044822'  # <<< SUBSTITUA POR TOKEN REAL
 ADMIN_ID = 8337105439
 SUPPORT_USER = "RLKDATROPADOSAN"
 GRUPO_LINK = "https://t.me/+qRi9ljZuHgRiYTMx"
@@ -68,7 +68,8 @@ def gerar_cobranca(valor, descricao, chat_id, tipo, indice):
             "payer": {
                 "email": f"user{chat_id}@rlk.com",
                 "first_name": "Cliente",
-                "last_name": "RLK"
+                "last_name": "RLK",
+                "identification": {"type": "CPF", "number": "19119119100"}  # <<< CPF FICTÍCIO
             },
             "notification_url": "https://rlk-bot-production.up.railway.app/webhook"
         }
