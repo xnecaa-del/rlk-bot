@@ -82,4 +82,217 @@ def gerar_cobranca(valor, descricao, chat_id, tipo, indice):
                 "indice": indice
             }
             return {
-                "qr_code": r["response"]["point_of_interaction"]["transaction_data"]["qr
+                "qr_code": r["response"]["point_of_interaction"]["transaction_data"]["qr_code"],
+                "init_point": r["response"]["init_point"]
+            }
+    except Exception as e:
+        logging.error(f"Erro cobrança: {e}")
+    return None
+
+def gerar_qr_code(pix_code):
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
+    qr.add_data(pix_code)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = BytesIO()
+    img.save(bio, format='PNG')
+    bio.seek(0)
+    return bio
+
+def liberar_produto(chat_id, tipo, indice):
+    try:
+        if tipo == "CC":
+            dados = obter_dados_completos(indice)
+            if not dados:
+                return
+            txt = (
+                "🔓 *DADO LIBERADO*\n"
+                "──────────────\n\n"
+                f"🏦 `{dados['banco']}`\n"
+                f"🔢 `{dados['numero']}`\n"
+                f"👤 `{dados['nome']}`\n"
+                f"🆔 `{dados['cpf']}`\n"
+                f"🏠 `{dados['endereco']}`"
+            )
+            remover_item("CC's.txt", indice)
+            remover_item("CC ful dados.txt", indice)
+        else:
+            consultaveis = listar_estoque("Consultaveis ful Dados.txt")
+            if indice >= len(consultaveis):
+                return
+            item = consultaveis[indice]
+            banco, valor = item.split("|", 1)
+            txt = (
+                "🔓 *CONSULTA LIBERADA*\n"
+                "──────────────\n\n"
+                f"🏦 `{banco}`\n"
+                f"💰 `{valor}`"
+            )
+            remover_item("Consultaveis ful Dados.txt", indice)
+        
+        safe_send_message(chat_id, txt)
+    except Exception as e:
+        logging.error(f"Erro liberação: {e}")
+
+# --- FLASK WEBHOOK ---
+app = Flask(__name__)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        data = request.get_json()
+        if data and "type" in data and data["type"] == "payment":
+            payment_id = str(data["data"]["id"])
+            if payment_id in compras_pendentes:
+                info = compras_pendentes[payment_id]
+                payment_info = sdk.payment().get(payment_id)
+                if payment_info["response"]["status"] == "approved":
+                    liberar_produto(info["chat_id"], info["tipo"], info["indice"])
+                    del compras_pendentes[payment_id]
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        logging.error(f"Webhook erro: {e}")
+        return jsonify({"error": "invalid"}), 400
+
+# --- TELEGRAM BOT ---
+@bot.message_handler(commands=['start', 'menu'])
+def menu_principal(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("💳 CC's", callback_data="listar_CC"),
+        types.InlineKeyboardButton("🛒 Consultáveis", callback_data="listar_CONSUL"),
+        types.InlineKeyboardButton("👥 Grupo RLK", url=GRUPO_LINK),
+        types.InlineKeyboardButton("🛠️ Suporte", url=f"https://t.me/{SUPPORT_USER}")
+    )
+    safe_send_message(
+        message.chat.id,
+        "🔥 *RLK DATROPADOSAN*\n\nTudo liberado. Nada é pago.",
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("listar_"))
+def listar(c):
+    tipo = c.data.split("_")[1]
+    if tipo == "CC":
+        arquivo = "CC's.txt"
+        icone = "💳"
+    else:
+        arquivo = "Consultaveis ful Dados.txt"
+        icone = "🛒"
+    
+    itens = listar_estoque(arquivo)
+    if not itens:
+        bot.answer_callback_query(c.id, "⚠️ Estoque vazio.", show_alert=True)
+        return
+    
+    if tipo == "CC":
+        mostrar_cc(c.message.chat.id, 0, c.message.message_id)
+    else:
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for i, item in enumerate(itens[:50]):
+            lbl = f"{icone} {item}"
+            markup.add(types.InlineKeyboardButton(lbl, callback_data=f"buy_CONSUL_{i}"))
+        markup.add(types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu"))
+        bot.edit_message_text(f"📦 *{tipo}*", c.message.chat.id, c.message.message_id, reply_markup=markup)
+
+def mostrar_cc(chat_id, indice, message_id=None):
+    ccs = listar_estoque("CC's.txt")
+    if not ccs or indice >= len(ccs):
+        bot.send_message(chat_id, "⚠️ Estoque vazio.")
+        return
+    
+    num = ccs[indice].split("|")[0]
+    mascarado = f"{num[:6]}******{num[-4:]}"
+    
+    botoes = []
+    if indice > 0:
+        botoes.append(types.InlineKeyboardButton("◀️ Anterior", callback_data=f"navegar_CC_{indice-1}"))
+    botoes.append(types.InlineKeyboardButton("🛒 Comprar", callback_data=f"buy_CC_{indice}"))
+    if indice < len(ccs) - 1:
+        botoes.append(types.InlineKeyboardButton("Próximo ▶️", callback_data=f"navegar_CC_{indice+1}"))
+    botoes.append(types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu"))
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(*botoes)
+    
+    texto = (
+        "💳 *CC SANSTORE*\n"
+        "──────────────\n\n"
+        f"`{mascarado}`\n\n"
+        "ℹ️ *NÃO POSSUI DADOS DE BICO.*\n"
+        "*SOMENTE CC's COM GARANTIA DE LIVE, MAS NÃO DE SALDO.*"
+    )
+    
+    try:
+        with open("cartao.jpg", "rb") as photo:
+            if message_id:
+                bot.edit_message_caption(chat_id, message_id, caption=texto, reply_markup=markup)
+            else:
+                bot.send_photo(chat_id, photo, caption=texto, reply_markup=markup)
+    except Exception as e:
+        logging.error(f"Erro ao enviar imagem: {e}")
+        if message_id:
+            bot.edit_message_text(texto, chat_id, message_id, reply_markup=markup)
+        else:
+            safe_send_message(chat_id, texto, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("navegar_CC_"))
+def navegar_cc(c):
+    indice = int(c.data.split("_")[2])
+    mostrar_cc(c.message.chat.id, indice, c.message.message_id)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("buy_"))
+def comprar(c):
+    partes = c.data.split("_")
+    tipo = partes[1]
+    indice = int(partes[2])
+    
+    if tipo == "CC":
+        arquivo = "CC's.txt"
+        itens = listar_estoque(arquivo)
+        if indice >= len(itens):
+            bot.answer_callback_query(c.id, "⚠️ Item indisponível.", show_alert=True)
+            return
+        num = itens[indice].split("|")[0]
+        mascarado = f"{num[:6]}******{num[-4:]}"
+        valor = obter_valor_cc(indice)
+        descricao = f"CC {mascarado}"
+    else:
+        arquivo = "Consultaveis ful Dados.txt"
+        itens = listar_estoque(arquivo)
+        if indice >= len(itens):
+            bot.answer_callback_query(c.id, "⚠️ Item indisponível.", show_alert=True)
+            return
+        item = itens[indice]
+        banco, val_str = item.split("|", 1)
+        try:
+            valor = float(val_str.replace("R$", "").replace(",", "."))
+        except:
+            valor = 120.00
+        descricao = f"CONSUL {banco}"
+    
+    cobranca = gerar_cobranca(valor, descricao, c.message.chat.id, tipo, indice)
+    if not cobranca:
+        safe_send_message(c.message.chat.id, "❌ Erro ao gerar pagamento.")
+        return
+    
+    qr_img = gerar_qr_code(cobranca["qr_code"])
+    caption = (
+        "✅ *PAGAMENTO GERADO*\n"
+        "──────────────\n\n"
+        f"💰 `R$ {valor:.2f}`\n\n"
+        "👇 *Copie o código PIX abaixo*:\n\n"
+        f"`{cobranca['qr_code']}`\n\n"
+        f"💳 *Ou pague com cartão aqui*:\n"
+        f"{cobranca['init_point']}\n\n"
+        "🤖 *Liberação automática após pagamento!*"
+    )
+    bot.send_photo(c.message.chat.id, qr_img, caption=caption)
+
+@bot.callback_query_handler(func=lambda c: c.data == "voltar_menu")
+def voltar(c):
+    menu_principal(c.message)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=False)
