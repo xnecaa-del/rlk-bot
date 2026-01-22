@@ -1,12 +1,12 @@
-﻿import telebot
+import telebot
 from telebot import types
 import mercadopago
 import os
 import logging
 import qrcode
 from io import BytesIO
-from flask import Flask, request, jsonify
 import threading
+from flask import Flask, request, jsonify
 
 # --- CONFIGURAÇÕES ---
 TOKEN = '8219509702:AAEQThWquHwt5e4V2YSL7vZdcCsdYVpwsW4'
@@ -19,7 +19,6 @@ bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
 sdk = mercadopago.SDK(MP_TOKEN)
 logging.basicConfig(level=logging.INFO)
 
-# Armazenar referências de compra
 compras_pendentes = {}
 
 def safe_send_message(chat_id, text, **kwargs):
@@ -29,45 +28,38 @@ def safe_send_message(chat_id, text, **kwargs):
         logging.error(f"Erro ao enviar para {chat_id}: {e}")
         return None
 
-def obter_valor_cc(tipo, idx=0):
-    if idx == 0:
-        return 0.90
-    t = tipo.upper()
-    precos = {
-        "NUBANK BLACK": 35.00,
-        "BLACK": 60.00,
-        "INFINITE": 40.00,
-        "NUBANK GOLD": 15.00,
-        "GOLD": 50.00,
-        "NUBANK PLATINUM": 50.00,
-        "PLATINUM": 50.00,
-        "SIGNATURE": 58.00,
-        "WORLD ELITE": 60.00,
-        "CLASSIC": 25.00,
-        "STANDARD": 40.00
-    }
-    for k, v in precos.items():
-        if k in t:
-            return v
-    return 50.00
+def obter_valor_cc(idx=0):
+    return 0.90 if idx == 0 else 35.00
 
-def listar_estoque(cat_solic):
-    arqs = ["ccs.txt", "consul.txt"]
-    linhas = []
-    for a in arqs:
-        if os.path.exists(a):
-            with open(a, "r", encoding="utf-8") as f:
-                linhas.extend([l.strip() for l in f if "|" in l])
-    res = []
-    for l in linhas:
-        eh_consul = "CONSUL" in l.upper() or "SALDO" in l.upper()
-        if cat_solic == "CONSUL" and eh_consul:
-            res.append(l)
-        elif cat_solic == "CCS" and not eh_consul:
-            res.append(l)
-    return res
+def listar_estoque(arquivo):
+    if not os.path.exists(arquivo):
+        return []
+    with open(arquivo, "r", encoding="utf-8") as f:
+        return [l.strip() for l in f if "|" in l]
 
-def gerar_cobranca(valor, descricao, chat_id, cat, idx):
+def remover_item(arquivo, indice):
+    itens = listar_estoque(arquivo)
+    if 0 <= indice < len(itens):
+        del itens[indice]
+        with open(arquivo, "w", encoding="utf-8") as f:
+            f.write("\n".join(itens) + ("\n" if itens else ""))
+
+def obter_dados_completos(indice):
+    ccs = listar_estoque("CC's.txt")
+    ful = listar_estoque("CC ful dados.txt")
+    if indice < len(ccs) and indice < len(ful):
+        num = ccs[indice].split("|")[0]
+        dados_ful = ful[indice].split("|")
+        return {
+            "numero": num,
+            "nome": dados_ful[0] if len(dados_ful) > 0 else "",
+            "cpf": dados_ful[1] if len(dados_ful) > 1 else "",
+            "banco": dados_ful[2] if len(dados_ful) > 2 else "",
+            "endereco": "|".join(dados_ful[3:]) if len(dados_ful) > 3 else ""
+        }
+    return None
+
+def gerar_cobranca(valor, descricao, chat_id, tipo, indice):
     try:
         data = {
             "transaction_amount": float(valor),
@@ -78,15 +70,15 @@ def gerar_cobranca(valor, descricao, chat_id, cat, idx):
                 "first_name": "Cliente",
                 "last_name": "RLK"
             },
-            "notification_url": "https://ardath-unflattered-sheldon.ngrok-free.dev/webhook"
+            "notification_url": "https://SEU_RAILWAY.up.railway.app/webhook"
         }
         r = sdk.payment().create(data)
         if r.get("status") == 201:
             payment_id = str(r["response"]["id"])
             compras_pendentes[payment_id] = {
                 "chat_id": chat_id,
-                "cat": cat,
-                "idx": idx
+                "tipo": tipo,
+                "indice": indice
             }
             return {
                 "qr_code": r["response"]["point_of_interaction"]["transaction_data"]["qr_code"],
@@ -106,23 +98,37 @@ def gerar_qr_code(pix_code):
     bio.seek(0)
     return bio
 
-def liberar_produto(chat_id, cat, idx):
+def liberar_produto(chat_id, tipo, indice):
     try:
-        itens = listar_estoque(cat)
-        if idx >= len(itens):
-            return
-        item = itens[idx]
-        p = item.split("|", 3)
-        banco = p[0].strip()
-        tipo = p[1].strip() if len(p) > 1 else ""
-        extras = "|".join(p[2:]) if len(p) > 2 else ""
-        txt = (
-            "🔓 *PRODUTO LIBERADO AUTOMATICAMENTE*\n"
-            "──────────────\n\n"
-            f"🏦 `{banco}`\n"
-            f"🏷️ `{tipo}`\n"
-            f"🔢 `{extras}`"
-        )
+        if tipo == "CC":
+            dados = obter_dados_completos(indice)
+            if not dados:
+                return
+            txt = (
+                "🔓 *DADO LIBERADO*\n"
+                "──────────────\n\n"
+                f"🏦 `{dados['banco']}`\n"
+                f"🔢 `{dados['numero']}`\n"
+                f"👤 `{dados['nome']}`\n"
+                f"🆔 `{dados['cpf']}`\n"
+                f"🏠 `{dados['endereco']}`"
+            )
+            remover_item("CC's.txt", indice)
+            remover_item("CC ful dados.txt", indice)
+        else:
+            consultaveis = listar_estoque("Consultaveis ful Dados.txt")
+            if indice >= len(consultaveis):
+                return
+            item = consultaveis[indice]
+            banco, valor = item.split("|", 1)
+            txt = (
+                "🔓 *CONSULTA LIBERADA*\n"
+                "──────────────\n\n"
+                f"🏦 `{banco}`\n"
+                f"💰 `{valor}`"
+            )
+            remover_item("Consultaveis ful Dados.txt", indice)
+        
         safe_send_message(chat_id, txt)
     except Exception as e:
         logging.error(f"Erro liberação: {e}")
@@ -140,7 +146,7 @@ def webhook():
                 info = compras_pendentes[payment_id]
                 payment_info = sdk.payment().get(payment_id)
                 if payment_info["response"]["status"] == "approved":
-                    liberar_produto(info["chat_id"], info["cat"], info["idx"])
+                    liberar_produto(info["chat_id"], info["tipo"], info["indice"])
                     del compras_pendentes[payment_id]
         return jsonify({"status": "ok"}), 200
     except Exception as e:
@@ -152,123 +158,97 @@ def webhook():
 def menu_principal(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
-        types.InlineKeyboardButton("💳 Comprar CCS", callback_data="listar_CCS"),
-        types.InlineKeyboardButton("🛒 Comprar CONSUL", callback_data="listar_CONSUL"),
+        types.InlineKeyboardButton("💳 CC's", callback_data="listar_CC"),
+        types.InlineKeyboardButton("🛒 Consultáveis", callback_data="listar_CONSUL"),
         types.InlineKeyboardButton("👥 Grupo RLK", url=GRUPO_LINK),
         types.InlineKeyboardButton("🛠️ Suporte", url=f"https://t.me/{SUPPORT_USER}")
     )
     safe_send_message(
         message.chat.id,
-        "🔥 *RLK DATROPADOSAN*\n\n"
-        "Pagamento automático via PIX.\n"
-        "✅ Primeiro item por apenas R$0,90!",
+        "🔥 *RLK DATROPADOSAN*\n\nTudo liberado. Nada é pago.",
         reply_markup=markup
     )
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("listar_"))
 def listar(c):
-    cat = c.data.split("_")[1]
-    itens = listar_estoque(cat)
+    tipo = c.data.split("_")[1]
+    if tipo == "CC":
+        arquivo = "CC's.txt"
+        icone = "💳"
+    else:
+        arquivo = "Consultaveis ful Dados.txt"
+        icone = "🛒"
+    
+    itens = listar_estoque(arquivo)
     if not itens:
         bot.answer_callback_query(c.id, "⚠️ Estoque vazio.", show_alert=True)
         return
+    
     markup = types.InlineKeyboardMarkup(row_width=1)
-    for i, l in enumerate(itens[:50]):
-        p = l.split("|", 2)
-        banco = p[0].strip()
-        if cat == "CONSUL":
-            try: v = float(p[1].replace("R$", "").replace(",", ".").strip())
-            except: v = 120.00
-            lbl = f"🛒 {banco} • R$ {v:.2f}"
+    for i, item in enumerate(itens[:50]):
+        if tipo == "CC":
+            num = item.split("|")[0]
+            mascarado = f"{num[:6]}******{num[-4:]}"
+            lbl = f"{icone} {mascarado}"
         else:
-            tipo = p[1].strip()
-            v = obter_valor_cc(tipo, i)
-            lbl = f"💳 {banco} • {tipo} • R$ {v:.2f}"
-        markup.add(types.InlineKeyboardButton(lbl, callback_data=f"buy_{cat}_{i}"))
+            lbl = f"{icone} {item}"
+        markup.add(types.InlineKeyboardButton(lbl, callback_data=f"buy_{tipo}_{i}"))
     markup.add(types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu"))
-    bot.edit_message_text(f"📦 *{cat}*", c.message.chat.id, c.message.message_id, reply_markup=markup)
+    bot.edit_message_text(f"📦 *{tipo}*", c.message.chat.id, c.message.message_id, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("buy_"))
 def comprar(c):
-    bot.answer_callback_query(c.id, "⏳ Gerando pagamento...")
-
-    try:
-        cat, idx = c.data.split("_")[1], int(c.data.split("_")[2])
-        itens = listar_estoque(cat)
-        if idx >= len(itens):
-            raise IndexError
-        item = itens[idx]
-        p = item.split("|", 2)
-        banco = p[0].strip()
-
-        if cat == "CCS" and idx == 0:
-            pix_code = "00020126450014br.gov.bcb.pix0123bsnkconceitos@gmail.com52040000530398654040.905802BR5918DEKA202402112136586009Sao Paulo62250521mpqrinter14293823316663046DA6"
-            valor = 0.90
-            qr_img = gerar_qr_code(pix_code)
-            caption = (
-                "✅ *PAGAMENTO GERADO (R$0,90)*\n"
-                "──────────────\n\n"
-                f"🏦 `{banco}`\n\n"
-                "👇 *Copie o código abaixo*:\n\n"
-                f"`{pix_code}`\n\n"
-                f"📨 Após pagar, envie comprovante para @{SUPPORT_USER}"
-            )
-            bot.send_photo(c.message.chat.id, qr_img, caption=caption)
-        else:
-            if cat == "CONSUL":
-                try: valor = float(p[1].replace("R$", "").replace(",", ".").strip())
-                except: valor = 120.00
-            else:
-                tipo = p[1].strip()
-                valor = obter_valor_cc(tipo, idx)
-            
-            cobranca = gerar_cobranca(valor, f"{cat} - {banco}", c.message.chat.id, cat, idx)
-            if not cobranca:
-                safe_send_message(c.message.chat.id, "❌ Erro ao gerar pagamento.")
-                return
-
-            qr_img = gerar_qr_code(cobranca["qr_code"])
-            caption = (
-                "✅ *PAGAMENTO GERADO*\n"
-                "──────────────\n\n"
-                f"🏦 `{banco}`\n"
-                f"💰 `R$ {valor:.2f}`\n\n"
-                "👇 *Copie o código PIX abaixo*:\n\n"
-                f"`{cobranca['qr_code']}`\n\n"
-                f"💳 *Ou pague com cartão aqui*:\n"
-                f"{cobranca['init_point']}\n\n"
-                "🤖 *Liberação automática após pagamento!*"
-            )
-            bot.send_photo(c.message.chat.id, qr_img, caption=caption)
-
-    except Exception as e:
-        logging.error(f"Erro compra: {e}")
-        safe_send_message(c.message.chat.id, "⚠️ Erro interno.")
+    partes = c.data.split("_")
+    tipo = partes[1]
+    indice = int(partes[2])
+    
+    if tipo == "CC":
+        arquivo = "CC's.txt"
+        itens = listar_estoque(arquivo)
+        if indice >= len(itens):
+            bot.answer_callback_query(c.id, "⚠️ Item indisponível.", show_alert=True)
+            return
+        num = itens[indice].split("|")[0]
+        mascarado = f"{num[:6]}******{num[-4:]}"
+        valor = obter_valor_cc(indice)
+        descricao = f"CC {mascarado}"
+    else:
+        arquivo = "Consultaveis ful Dados.txt"
+        itens = listar_estoque(arquivo)
+        if indice >= len(itens):
+            bot.answer_callback_query(c.id, "⚠️ Item indisponível.", show_alert=True)
+            return
+        item = itens[indice]
+        banco, val_str = item.split("|", 1)
+        try:
+            valor = float(val_str.replace("R$", "").replace(",", "."))
+        except:
+            valor = 120.00
+        descricao = f"CONSUL {banco}"
+    
+    cobranca = gerar_cobranca(valor, descricao, c.message.chat.id, tipo, indice)
+    if not cobranca:
+        safe_send_message(c.message.chat.id, "❌ Erro ao gerar pagamento.")
+        return
+    
+    qr_img = gerar_qr_code(cobranca["qr_code"])
+    caption = (
+        "✅ *PAGAMENTO GERADO*\n"
+        "──────────────\n\n"
+        f"💰 `R$ {valor:.2f}`\n\n"
+        "👇 *Copie o código PIX abaixo*:\n\n"
+        f"`{cobranca['qr_code']}`\n\n"
+        f"💳 *Ou pague com cartão aqui*:\n"
+        f"{cobranca['init_point']}\n\n"
+        "🤖 *Liberação automática após pagamento!*"
+    )
+    bot.send_photo(c.message.chat.id, qr_img, caption=caption)
 
 @bot.callback_query_handler(func=lambda c: c.data == "voltar_menu")
 def voltar(c):
     menu_principal(c.message)
 
-@bot.message_handler(commands=['add'])
-def add_cmd(msg):
-    if msg.from_user.id != ADMIN_ID:
-        return
-    try:
-        partes = msg.text.split(" ", 2)
-        cat = partes[1].lower()
-        if cat not in ["ccs", "consul"]:
-            safe_send_message(ADMIN_ID, "⚠️ Use 'ccs' ou 'consul'.")
-            return
-        with open(f"{cat}.txt", "a", encoding="utf-8") as f:
-            f.write(partes[2] + "\n")
-        safe_send_message(ADMIN_ID, "✅ Adicionado.")
-    except:
-        safe_send_message(ADMIN_ID, "⚠️ Uso: /add [ccs/consul] dados")
-
-# --- INICIAR TUDO ---
 if __name__ == "__main__":
-    print("🚀 Iniciando servidor webhook...")
-    threading.Thread(target=lambda: app.run(port=5000, debug=False)).start()
-    print("✅ Servidor webhook ativo na porta 5000")
-    print("➡️ Certifique-se de que o ngrok está rodando: ngrok http 5000")
+    port = int(os.environ.get("PORT", 8000))
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False)).start()
     bot.polling(none_stop=True)
