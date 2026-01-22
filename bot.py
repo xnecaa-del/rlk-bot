@@ -80,9 +80,12 @@ def gerar_cobranca(valor, descricao, chat_id, tipo, indice):
                 "tipo": tipo,
                 "indice": indice
             }
+            # Garantir que os campos existem
+            qr_code = r["response"]["point_of_interaction"]["transaction_data"].get("qr_code", "")
+            init_point = r["response"].get("init_point", "")
             return {
-                "qr_code": r["response"]["point_of_interaction"]["transaction_data"]["qr_code"],
-                "init_point": r["response"]["init_point"]
+                "qr_code": qr_code,
+                "init_point": init_point
             }
     except Exception as e:
         logging.error(f"Erro cobrança: {e}")
