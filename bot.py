@@ -70,7 +70,7 @@ def gerar_cobranca(valor, descricao, chat_id, tipo, indice):
                 "first_name": "Cliente",
                 "last_name": "RLK"
             },
-            "notification_url": "https://SEU_RAILWAY.up.railway.app/webhook"
+            "notification_url": "https://rlk-bot-production.up.railway.app/webhook"
         }
         r = sdk.payment().create(data)
         if r.get("status") == 201:
@@ -184,17 +184,61 @@ def listar(c):
         bot.answer_callback_query(c.id, "⚠️ Estoque vazio.", show_alert=True)
         return
     
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    for i, item in enumerate(itens[:50]):
-        if tipo == "CC":
-            num = item.split("|")[0]
-            mascarado = f"{num[:6]}******{num[-4:]}"
-            lbl = f"{icone} {mascarado}"
-        else:
+    if tipo == "CC":
+        mostrar_cc(c.message.chat.id, 0, c.message.message_id)
+    else:
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for i, item in enumerate(itens[:50]):
             lbl = f"{icone} {item}"
-        markup.add(types.InlineKeyboardButton(lbl, callback_data=f"buy_{tipo}_{i}"))
-    markup.add(types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu"))
-    bot.edit_message_text(f"📦 *{tipo}*", c.message.chat.id, c.message.message_id, reply_markup=markup)
+            markup.add(types.InlineKeyboardButton(lbl, callback_data=f"buy_CONSUL_{i}"))
+        markup.add(types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu"))
+        bot.edit_message_text(f"📦 *{tipo}*", c.message.chat.id, c.message.message_id, reply_markup=markup)
+
+def mostrar_cc(chat_id, indice, message_id=None):
+    ccs = listar_estoque("CC's.txt")
+    if not ccs or indice >= len(ccs):
+        bot.send_message(chat_id, "⚠️ Estoque vazio.")
+        return
+    
+    num = ccs[indice].split("|")[0]
+    mascarado = f"{num[:6]}******{num[-4:]}"
+    
+    botoes = []
+    if indice > 0:
+        botoes.append(types.InlineKeyboardButton("◀️ Anterior", callback_data=f"navegar_CC_{indice-1}"))
+    botoes.append(types.InlineKeyboardButton("🛒 Comprar", callback_data=f"buy_CC_{indice}"))
+    if indice < len(ccs) - 1:
+        botoes.append(types.InlineKeyboardButton("Próximo ▶️", callback_data=f"navegar_CC_{indice+1}"))
+    botoes.append(types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu"))
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(*botoes)
+    
+    texto = (
+        "💳 *CC SANSTORE*\n"
+        "──────────────\n\n"
+        f"`{mascarado}`\n\n"
+        "ℹ️ *NÃO POSSUI DADOS DE BICO.*\n"
+        "*SOMENTE CC's COM GARANTIA DE LIVE, MAS NÃO DE SALDO.*"
+    )
+    
+    try:
+        with open("cartao.jpg", "rb") as photo:
+            if message_id:
+                bot.edit_message_caption(chat_id, message_id, caption=texto, reply_markup=markup)
+            else:
+                bot.send_photo(chat_id, photo, caption=texto, reply_markup=markup)
+    except Exception as e:
+        logging.error(f"Erro ao enviar imagem: {e}")
+        if message_id:
+            bot.edit_message_text(texto, chat_id, message_id, reply_markup=markup)
+        else:
+            safe_send_message(chat_id, texto, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("navegar_CC_"))
+def navegar_cc(c):
+    indice = int(c.data.split("_")[2])
+    mostrar_cc(c.message.chat.id, indice, c.message.message_id)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("buy_"))
 def comprar(c):
@@ -247,40 +291,6 @@ def comprar(c):
 @bot.callback_query_handler(func=lambda c: c.data == "voltar_menu")
 def voltar(c):
     menu_principal(c.message)
-
-# --- MOSTRAR IMAGEM AO ACESSAR CC'S ---
-@bot.callback_query_handler(func=lambda c: c.data == "listar_CC")
-def mostrar_cc_com_imagem(c):
-    itens = listar_estoque("CC's.txt")
-    if not itens:
-        bot.answer_callback_query(c.id, "⚠️ Estoque vazio.", show_alert=True)
-        return
-    
-    # Pegar primeira CC
-    num = itens[0].split("|")[0]
-    mascarado = f"{num[:6]}******{num[-4:]}"
-    
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("🔄 Outra CC", callback_data="outra_cc"),
-        types.InlineKeyboardButton("🛒 Comprar", callback_data="buy_CC_0"),
-        types.InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_menu")
-    )
-    
-    texto = (
-        "💳 *CC SANSTORE*\n"
-        "──────────────\n\n"
-        f"`{mascarado}`\n\n"
-        "✅ Número completo após pagamento.\n"
-        "🛡️ Seguro e confidencial."
-    )
-    
-    try:
-        with open("cartao.jpg", "rb") as photo:
-            bot.send_photo(c.message.chat.id, photo, caption=texto, reply_markup=markup)
-    except Exception as e:
-        logging.error(f"Erro ao enviar imagem: {e}")
-        bot.edit_message_text(texto, c.message.chat.id, c.message.message_id, reply_markup=markup)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
