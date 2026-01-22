@@ -136,12 +136,9 @@ def liberar_produto(chat_id, tipo, indice):
     except Exception as e:
         logging.error(f"Erro liberação: {e}")
 
-# --- FLASK WEBHOOK ---
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Bot RLK DATROPADOSAN Online"
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    return "Webhook OK", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
